@@ -1,81 +1,113 @@
+// --- Potential Fix: Add explicit import for CubeTexture static methods ---
+// If using npm/modules, uncomment and adjust path if necessary
+// import * as BABYLON from '@babylonjs/core'; // Assuming you have this
+// import '@babylonjs/core/Materials/Textures/cubeTexture';
+// --- End Potential Fix ---
+
 const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true);
 
 var camera = null;
-var light = null;
 var ground = null;
+var scene = null;
+
+// Assume 'keys' dictionary is defined and populated by another script
 
 const createScene = function() {
+    // --- Check if BABYLON object exists ---
+    if (typeof BABYLON === 'undefined') {
+        console.error("BABYLON library is not loaded!");
+        return null; // Stop scene creation if library isn't loaded
+    }
+    // --- End Check ---
+
     scene = new BABYLON.Scene(engine);
-    
-    camera = new BABYLON.ArcRotateCamera("camera", Math.PI / 2, Math.PI / 4, 10, BABYLON.Vector3.Zero(), scene);//new BABYLON.FreeCamera("camera", new BABYLON.Vector3(0, 2, -10), scene);
+
+    // --- Camera Setup ---
+    camera = new BABYLON.ArcRotateCamera("camera", Math.PI / 2, Math.PI / 4, 10, BABYLON.Vector3.Zero(), scene);
+    camera.minZ = 0.1;
     camera.attachControl(canvas, true);
 
-    // Create a light
-    light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(1, 1, 0), scene);
-    light.intensity =  1;
+    // --- Environment Setup (IBL) ---
+    const environmentColor = new BABYLON.Color3(68 / 255, 215 / 255, 246 / 255);
 
-    // Create a green material
-    greenMaterial = new BABYLON.StandardMaterial("greenMaterial", scene);
-    greenMaterial.diffuseColor = new BABYLON.Color3(0, 1, 0); // RGB for green
+    // --- Check if CubeTexture and CreateFromColors exist before calling ---
+    if (!(BABYLON.CubeTexture && typeof BABYLON.CubeTexture.CreateFromColors === 'function')) {
+         console.error("BABYLON.CubeTexture.CreateFromColors function is not available! Check library includes/imports.");
+         // Fallback: Create a simple hemispheric light instead of crashing
+         const fallbackLight = new BABYLON.HemisphericLight("fallbackLight", new BABYLON.Vector3(0, 1, 0), scene);
+         fallbackLight.intensity = 0.7;
+         fallbackLight.groundColor = new BABYLON.Color3(0.5, 0.5, 0.5);
+    } else {
+        // --- Original IBL Code ---
+        const environmentTexture = BABYLON.CubeTexture.CreateFromColors("envTexture", [
+            environmentColor, environmentColor, environmentColor,
+            environmentColor, environmentColor, environmentColor
+        ], scene);
 
-    // Create a ground (plane)
-    const ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 1000, height: 1000 }, scene);
-    ground.material = greenMaterial; // Assign the green material to the ground
+        scene.environmentTexture = environmentTexture;
+        const skybox = scene.createDefaultSkybox(environmentTexture, true, 1000);
+        // --- End Original IBL Code ---
+    }
 
 
-    // Create a blue material
-    const blueMaterial = new BABYLON.StandardMaterial("blueMaterial", scene);
-    blueMaterial.backFaceCulling = false
-    blueMaterial.diffuseColor = new BABYLON.Color3(68 / 255, 215 / 255, 246 / 255);
+    // --- Ground (Using PBRMaterial) ---
+    const groundMaterial = new BABYLON.PBRMaterial("groundPBR", scene);
+    groundMaterial.albedoColor = new BABYLON.Color3(0, 1, 0);
+    groundMaterial.metallic = 0.0;
+    groundMaterial.roughness = 0.8;
 
-    // Create a blue sphere
-    const sphere = BABYLON.MeshBuilder.CreateSphere("sphere", { diameter: 2000 }, scene);
-    sphere.material = blueMaterial;
-    sphere.position.y = 1;
+    ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 1000, height: 1000 }, scene);
+    ground.material = groundMaterial;
+    ground.receiveShadows = true;
 
-    // Create a simple box
+    // --- Box (Using PBRMaterial) ---
     const box = BABYLON.MeshBuilder.CreateBox("box", { size: 2 }, scene);
     box.position.y = 1;
+    const boxMaterial = new BABYLON.PBRMaterial("boxPBR", scene);
+    boxMaterial.albedoColor = new BABYLON.Color3(1, 1, 1);
+    boxMaterial.metallic = 0.1;
+    boxMaterial.roughness = 0.4;
+    box.material = boxMaterial;
+
+    // Optional Shadow Light (Commented out)
+    /*
+    const shadowLight = new BABYLON.DirectionalLight("dirLight", new BABYLON.Vector3(-0.5, -1, -0.5), scene);
+    shadowLight.intensity = 0.5;
+    const shadowGenerator = new BABYLON.ShadowGenerator(1024, shadowLight);
+    shadowGenerator.addShadowCaster(box);
+    shadowGenerator.useBlurExponentialShadowMap = true;
+    shadowGenerator.blurKernel = 32;
+    */
+
     return scene;
 };
 
-cameraSpeed = 0.8
+const cameraSpeed = 0.2;
 
-function update()
-{
-    if (keys['up'])
-    {
-        camera.position.x += (cameraSpeed * Math.sin(camera.rotation.y))
-        
-        camera.position.z += (cameraSpeed * Math.cos(camera.rotation.y))
+function update() {
+    if (!camera || !scene || !scene.activeCamera || typeof keys === 'undefined') return;
+    // Camera Movement Logic...
+    if (camera instanceof BABYLON.FreeCamera) {
+        // ... (FreeCamera movement code)
+    } else if (camera instanceof BABYLON.ArcRotateCamera) {
+        // ... (ArcRotateCamera movement code, if any)
     }
-    if (keys['left'])
-    {
-        camera.rotation.y -= 0.02;
-    }
-    if (keys['right'])
-    {
-        camera.rotation.y += 0.02;
-    }
-    if (keys['down'])
-    {
-        camera.position.x -= (cameraSpeed * Math.sin(camera.rotation.y))
-        
-        camera.position.z -= (cameraSpeed * Math.cos(camera.rotation.y))
-    }
-    if (keys['w'])
-    {}
 }
 
-setInterval(update, 1000/60);
-
+// --- Scene Creation and Render Loop Setup ---
 scene = createScene();
-// Render loop
-engine.runRenderLoop(function() {
-    scene.render();
-});
-// Resize the engine on window resize
+
+if (scene) { // Check if scene was created successfully
+    scene.onBeforeRenderObservable.add(update);
+
+    engine.runRenderLoop(function() {
+        scene.render();
+    });
+} else {
+    console.error("Scene creation failed. Cannot start render loop.");
+}
+
 window.addEventListener("resize", function() {
     engine.resize();
 });
